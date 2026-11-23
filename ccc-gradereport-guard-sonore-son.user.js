@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         CCC - Son d'erreur (pour la version sonore)
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.2.0
+// @version      0.2.1
 // @description  Demande au service local du Mac (installé par installer_lanceurs.command) de jouer le son d'erreur, avec les mêmes règles que le script de téléchargement.
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
 // @connect      127.0.0.1
-// @updateURL    https://raw.githubusercontent.com/cccgrading/scripts-navigateur/main/ccc-gradereport-guard-sonore-son.user.js
-// @downloadURL  https://raw.githubusercontent.com/cccgrading/scripts-navigateur/main/ccc-gradereport-guard-sonore-son.user.js
+// @updateURL    https://raw.githubusercontent.com/scripts-dr-strange/scripts-navigateur/main/ccc-gradereport-guard-sonore-son.user.js
+// @downloadURL  https://raw.githubusercontent.com/scripts-dr-strange/scripts-navigateur/main/ccc-gradereport-guard-sonore-son.user.js
 // ==/UserScript==
 
 // Le son est joué par le Mac lui-même (afplay, volume forcé à 80 %, muet levé puis remis) via un petit

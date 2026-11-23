@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live)
 // @namespace    https://www.cccgrading.com/
-// @version      0.2.1
+// @version      0.2.2
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : boutons colorés selon les règles, message court au-dessus du bouton à la première tentative sur un bouton rouge/orange (un second clic passe). Sans son.
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/cccgrading/scripts-navigateur/main/ccc-gradereport-guard.user.js
-// @downloadURL  https://raw.githubusercontent.com/cccgrading/scripts-navigateur/main/ccc-gradereport-guard.user.js
+// @updateURL    https://raw.githubusercontent.com/scripts-dr-strange/scripts-navigateur/main/ccc-gradereport-guard.user.js
+// @downloadURL  https://raw.githubusercontent.com/scripts-dr-strange/scripts-navigateur/main/ccc-gradereport-guard.user.js
 // ==/UserScript==
 
 (function () {
