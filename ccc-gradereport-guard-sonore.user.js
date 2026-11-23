@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.3.2
+// @version      0.3.3
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -14,7 +14,7 @@
   'use strict';
 
   const CFG = { seuilValeur: 100 };
-  const COL = { grey: '#4d4d4d', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
+  const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
   // ───────────────────────── Règles (fonctions pures) ─────────────────────────
   const SIDES = ['front', 'back'];
@@ -226,7 +226,7 @@
     if (color) {
       el.style.setProperty('background-color', color, 'important');
       el.style.setProperty('border-color', color, 'important');
-      el.style.setProperty('color', '#fff', 'important');
+      el.style.setProperty('color', color === COL.grey ? COL.greyText : '#fff', 'important');
     } else {
       el.style.removeProperty('background-color');
       el.style.removeProperty('border-color');
@@ -444,8 +444,8 @@
     // Rien n'est coloré tant qu'il n'y a pas eu de tentative sur un bouton en erreur.
     // Boutons « Créer un GR » : gris seulement après un clic alors que le GR n'est pas attendu.
     $$('.report-retry-button', w).forEach((b) => {
-      const key = b.getAttribute('data-report-retry') || b.textContent;
-      paint(b, !ev.st.rejected && ev.exp.exp === false && retryWarned.has(key) ? COL.grey : null);
+      // dès qu'un bouton « Créer un GR » a été signalé, les deux se grisent
+      paint(b, !ev.st.rejected && ev.exp.exp === false && retryWarned.size ? COL.grey : null);
     });
     // Bouton principal : rouge / orange seulement après une tentative sur l'état courant.
     const attempted = attemptSig !== null && attemptSig === ev.sig;
@@ -494,6 +494,8 @@
     if (!ev || ev.st.rejected || ev.exp.exp !== false) return;
     const key = btn.getAttribute('data-report-retry') || btn.textContent;
     if (retryWarned.has(key)) return;
+    // l'avertissement vaut pour les deux boutons « Créer un GR » (le second est grisé aussi et passe directement)
+    $$('.report-retry-button', cur.wrapper).forEach((b) => retryWarned.add(b.getAttribute('data-report-retry') || b.textContent));
     retryWarned.add(key);
     update();
     beep(e);

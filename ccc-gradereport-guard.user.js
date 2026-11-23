@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live)
 // @namespace    https://www.cccgrading.com/
-// @version      0.2.2
+// @version      0.2.3
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : boutons colorés selon les règles, message court au-dessus du bouton à la première tentative sur un bouton rouge/orange (un second clic passe). Sans son.
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -14,7 +14,7 @@
   'use strict';
 
   const CFG = { seuilValeur: 100 };
-  const COL = { grey: '#4d4d4d', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
+  const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
   // ───────────────────────── Règles (fonctions pures) ─────────────────────────
   const SIDES = ['front', 'back'];
@@ -226,7 +226,7 @@
     if (color) {
       el.style.setProperty('background-color', color, 'important');
       el.style.setProperty('border-color', color, 'important');
-      el.style.setProperty('color', '#fff', 'important');
+      el.style.setProperty('color', color === COL.grey ? COL.greyText : '#fff', 'important');
     } else {
       el.style.removeProperty('background-color');
       el.style.removeProperty('border-color');
