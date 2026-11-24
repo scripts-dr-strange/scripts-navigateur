@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.4.2
+// @version      0.5.0
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.4.2';    // affichée dans la console (diagnostic)
+  const VERSION = '0.5.0';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -590,6 +590,10 @@
   const beep = (e) => { if (e && e.altKey) return; try {   // Option (Alt) maintenue pendant le clic : pas de son
        document.dispatchEvent(new CustomEvent('ccc-guard-sound')); } catch (e) { /* ignoré */ } };
 
+  // Option + clic sur un bouton d'action sans aucune erreur : son "chicken" (dossier Sounds/chicken).
+  const chicken = (e) => { if (!e || !e.altKey) return; try {
+       document.dispatchEvent(new CustomEvent('ccc-guard-sound-chicken')); } catch (err) { /* ignoré */ } };
+
   function hideBubble() { if (bubble) { bubble.remove(); bubble = null; } }
   function showBubble(target, text) {
     hideBubble();
@@ -606,7 +610,7 @@
   function guardMain(e) {
     if (!cur || Date.now() < passUntil) return;
     const ev = evaluate();
-    if (!ev || !ev.sig) return;
+    if (!ev || !ev.sig) { chicken(e); return; }
     if (attemptSig === ev.sig) { passUntil = Date.now() + 1500; return; }
     attemptSig = ev.sig;
     try { if (ev.marks) console.log('[CCC GR v' + VERSION + ']', JSON.stringify({ reds: ev.reds, corner: ev.marks.corner, side: ev.marks.side, surface: ev.marks.surface, labels: ev.marks.dbg })); } catch (e) { /* ignoré */ }
@@ -618,7 +622,7 @@
   function guardRetry(e, btn) {
     if (!cur) return;
     const ev = evaluate();
-    if (!ev || ev.st.rejected || ev.exp.exp !== false) return;
+    if (!ev || ev.st.rejected || ev.exp.exp !== false) { chicken(e); return; }
     const key = btn.getAttribute('data-report-retry') || btn.textContent;
     if (retryWarned.has(key)) return;
     // l'avertissement vaut pour les deux boutons « Créer un GR » (le second est grisé aussi et passe directement)
