@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.5.2
+// @version      0.6.0
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.5.2';    // affichée dans la console (diagnostic)
+  const VERSION = '0.6.0';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -587,12 +587,20 @@
   const schedule = () => { clearTimeout(timer); timer = setTimeout(update, 80); };
 
   // Son : délégué au 2e userscript (ccc-guard-sound), qui a accès au Drive local. Sans lui, rien ne se passe.
-  const beep = (e) => { if (e && e.altKey) return; try {   // Option (Alt) maintenue pendant le clic : pas de son
-       document.dispatchEvent(new CustomEvent('ccc-guard-sound')); } catch (e) { /* ignoré */ } };
-
-  // Option + clic sur un bouton d'action sans aucune erreur : son "chicken" (dossier Sounds/chicken).
-  const chicken = (e) => { if (!e || !e.altKey) return; try {
-       document.dispatchEvent(new CustomEvent('ccc-guard-sound-chicken')); } catch (err) { /* ignoré */ } };
+  // Touches : flèche du bas maintenue pendant le clic = AUCUN son ; Option maintenue = bruit "chicken" à la place
+  // du son d'erreur (et aussi sur un clic sans erreur), sauf cas "GradeReport" (voir optQuiet) : alors silence.
+  let downHeld = false;
+  window.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown') downHeld = true; }, true);
+  window.addEventListener('keyup', (e) => { if (e.key === 'ArrowDown') downHeld = false; }, true);
+  window.addEventListener('blur', () => { downHeld = false; });
+  const fire = (name) => { try { document.dispatchEvent(new CustomEvent(name)); } catch (err) { /* ignoré */ } };
+  // Cas où Option donne le silence (ni chicken ni son d'erreur) : aucun GradeReport attendu, ou GradeReport
+  // attendu mais pas encore créé.
+  const optQuiet = (ev) => !!ev && (ev.exp.exp === false || ev.reds.some((r) => r.indexOf('GradeReport attendu : à créer') === 0));
+  // Clic sur un bouton d'action qui n'est PAS bloqué : seul Option fait du bruit (chicken).
+  const optClick = (e, quiet) => { if (downHeld || quiet || !e || !e.altKey) return; fire('ccc-guard-sound-chicken'); };
+  // Clic bloqué avec avertissement : son d'erreur, ou chicken si Option, ou rien si flèche du bas / cas silencieux.
+  const beep = (e, quiet) => { if (downHeld) return; if (e && e.altKey) { if (!quiet) fire('ccc-guard-sound-chicken'); return; } fire('ccc-guard-sound'); };
 
   function hideBubble() { if (bubble) { bubble.remove(); bubble = null; } }
   function showBubble(target, text) {
@@ -608,28 +616,30 @@
 
   // Première tentative sur rouge/orange : on affiche le message et on bloque ; la seconde passe.
   function guardMain(e) {
-    if (!cur || Date.now() < passUntil) return;
+    if (!cur) return;
     const ev = evaluate();
-    if (!ev || !ev.sig) { if (!ev || ev.exp.exp !== false) chicken(e); return; }   // pas de chicken si aucun GradeReport n'est attendu
-    if (attemptSig === ev.sig) { passUntil = Date.now() + 1500; return; }
+    const quiet = optQuiet(ev);
+    if (Date.now() < passUntil) { optClick(e, quiet); return; }
+    if (!ev || !ev.sig) { optClick(e, quiet); return; }
+    if (attemptSig === ev.sig) { passUntil = Date.now() + 1500; optClick(e, quiet); return; }
     attemptSig = ev.sig;
-    try { if (ev.marks) console.log('[CCC GR v' + VERSION + ']', JSON.stringify({ reds: ev.reds, corner: ev.marks.corner, side: ev.marks.side, surface: ev.marks.surface, labels: ev.marks.dbg })); } catch (e) { /* ignoré */ }
+    try { if (ev.marks) console.log('[CCC GR v' + VERSION + ']', JSON.stringify({ reds: ev.reds, corner: ev.marks.corner, side: ev.marks.side, surface: ev.marks.surface, labels: ev.marks.dbg })); } catch (e2) { /* ignoré */ }
     update();
-    beep(e);
+    beep(e, quiet);
     e.preventDefault();
     e.stopImmediatePropagation();
   }
   function guardRetry(e, btn) {
     if (!cur) return;
     const ev = evaluate();
-    if (!ev || ev.st.rejected || ev.exp.exp !== false) { chicken(e); return; }
+    if (!ev || ev.st.rejected || ev.exp.exp !== false) { optClick(e, false); return; }
     const key = btn.getAttribute('data-report-retry') || btn.textContent;
-    if (retryWarned.has(key)) return;
+    if (retryWarned.has(key)) { optClick(e, true); return; }   // GradeReport non attendu : Option = silence
     // l'avertissement vaut pour les deux boutons « Créer un GR » (le second est grisé aussi et passe directement)
     $$('.report-retry-button', cur.wrapper).forEach((b) => retryWarned.add(b.getAttribute('data-report-retry') || b.textContent));
     retryWarned.add(key);
     update();
-    beep(e);
+    beep(e, true);
     showBubble(btn, 'GradeReport non attendu (' + ev.exp.why + '). Recliquer pour continuer.');
     e.preventDefault();
     e.stopImmediatePropagation();
