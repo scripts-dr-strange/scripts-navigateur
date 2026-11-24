@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.5.0
+// @version      0.5.1
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.5.0';    // affichée dans la console (diagnostic)
+  const VERSION = '0.5.1';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -535,7 +535,8 @@
       }
     }
     const orange = st.temp ? 'Commentaire temporaire présent' : null;
-    return { st, exp, noteErrs, reds, orange, card, marks, sig: reds.length ? 'R:' + reds.join('|') : orange ? 'O' : '' };
+    const grMissing = exp.exp === true && !grExists;   // GradeReport attendu mais pas encore créé
+    return { st, exp, noteErrs, reds, orange, card, marks, grMissing, sig: reds.length ? 'R:' + reds.join('|') : orange ? 'O' : '' };
   }
 
   function msgBox() {
@@ -610,7 +611,7 @@
   function guardMain(e) {
     if (!cur || Date.now() < passUntil) return;
     const ev = evaluate();
-    if (!ev || !ev.sig) { chicken(e); return; }
+    if (!ev || !ev.sig) { if (!ev || !ev.grMissing) chicken(e); return; }   // pas de chicken si GradeReport attendu mais absent
     if (attemptSig === ev.sig) { passUntil = Date.now() + 1500; return; }
     attemptSig = ev.sig;
     try { if (ev.marks) console.log('[CCC GR v' + VERSION + ']', JSON.stringify({ reds: ev.reds, corner: ev.marks.corner, side: ev.marks.side, surface: ev.marks.surface, labels: ev.marks.dbg })); } catch (e) { /* ignoré */ }
