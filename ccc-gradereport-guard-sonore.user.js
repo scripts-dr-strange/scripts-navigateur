@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.4.0
+// @version      0.4.1
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -191,13 +191,15 @@
     if (s == null || !labels) return msgs;
     const defects = labels.filter((l) => l.kind === 'defect');
     const prl = labels.filter((l) => l.kind === 'prl');
+    const combos = labels.filter((l) => l.kind === 'combo');   // R1/Pr.L, R1/R2, R2/R3 : sans règle propre, mais ce sont des défauts
     const plainR1 = defects.filter((l) => l.base === 'R1' && !l.sfx.length);
     if (s === 10) {
+      const all = defects.concat(combos);
       if (prl.some((l) => l.sfx.indexOf('lg') < 0 && l.sfx.indexOf('min') < 0)) msgs.push('Surface 10 : Pr.L seul impossible (Pr.L-Lg. ou Pr.L-Min. uniquement).');
-      const d = defects[0];
-      const exempt = defects.length === 1 && (d.sfx.indexOf('bordr') >= 0 || (d.sfx.indexOf('usine') >= 0 && d.base !== 'E'));
-      if (defects.length && !exempt) {
-        msgs.push('Surface 10 : label ' + defects.map((l) => l.text).join(', ') + ' impossible (admis : D.U.I, Silv., Pr.L-Lg./-Min., ou un défaut unique -Usine/-Bordr.).');
+      const d = all[0];
+      const exempt = all.length === 1 && (d.sfx.indexOf('bordr') >= 0 || (d.sfx.indexOf('usine') >= 0 && d.base !== 'E'));
+      if (all.length && !exempt) {
+        msgs.push('Surface 10 : label ' + all.map((l) => l.text).join(', ') + ' impossible (admis : D.U.I, Silv., Pr.L-Lg./-Min., ou un défaut unique -Usine/-Bordr.).');
       }
       return msgs;
     }
@@ -205,14 +207,14 @@
     defects.forEach((l) => { const m = maxSurface(l); if (m < lim) { lim = m; who = l.text; } });
     if (s > lim) msgs.push('Surface ' + fmt(s) + ' : ' + who + ' impose ' + fmt(lim) + ' maximum.');
     if (plainR1.length > 5 && s >= 9.5) msgs.push('Surface ' + fmt(s) + ' : plus de 5 R1 (' + plainR1.length + ').');
-    if (plainR1.length && defects.length === plainR1.length && plainR1.length <= 4 && s < 9.5) {
+    if (plainR1.length && !combos.length && defects.length === plainR1.length && plainR1.length <= 4 && s < 9.5) {
       msgs.push('R1 seules (' + plainR1.length + ') : la surface ne peut pas être inférieure à 9,5.');
     }
     const eff = (l) => l.sfx.filter((x) => x !== 'bordr').join('+');
-    if (defects.length && !prl.length && defects.every((l) => l.base === 'T' && eff(l) === 'lg') && s !== 9.5) {
+    if (defects.length && !prl.length && !combos.length && defects.every((l) => l.base === 'T' && eff(l) === 'lg') && s !== 9.5) {
       msgs.push('T-Lg seul : surface 9,5 attendue.');
     }
-    if (!defects.length && prl.length && prl.every((l) => !l.sfx.length) && s !== 9.5) {
+    if (!defects.length && !combos.length && prl.length && prl.every((l) => !l.sfx.length) && s !== 9.5) {
       msgs.push('Pr.L seul : surface 9,5 attendue.');
     }
     return msgs;
@@ -236,8 +238,8 @@
         if (sub.surface != null && sub.surface < 10 && !canvas.surface) msgs.push('Surface < 10 : aucun label, tracé (draw) ni ligne (line) sur le schéma.');
         if (sub.corner != null && sub.corner < 10 && !canvas.corner) msgs.push('Coins < 10 : aucun tracé border sur un coin, ni label ◜, ni D.U.I en diagonale.');
         if (sub.side != null && sub.side < 10 && !canvas.side) msgs.push("Côtés < 10 : aucun tracé border le long d'un bord, ni label Silv. / D.U.I sur un bord.");
-        if (sub.corner === 10 && canvas.cornerPure) msgs.push('Coins 10 : tracé border, label ◜ ou D.U.I en diagonale sur un coin.');
-        if (sub.side === 10 && canvas.sidePure) msgs.push('Côtés 10 : tracé border ou label Silv. / D.U.I sur un bord.');
+        if (sub.corner === 10 && canvas.corner) msgs.push('Coins 10 : tracé border ou label (◜, D.U.I, Silv.) sur un coin : repositionner pour ne pas toucher le coin.');
+        if (sub.side === 10 && canvas.side) msgs.push('Côtés 10 : tracé border ou label (Silv., D.U.I) sur un bord : repositionner pour ne pas toucher le bord.');
         if (sub.surface === 10 && canvas.drawOnCard) msgs.push('Surface 10 : tracé (draw) ou ligne (line) sur la carte.');
         msgs.push(...labelMsgs(sub.surface, canvas.labels));
       }
