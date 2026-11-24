@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.4.1
+// @version      0.4.2
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,6 +13,7 @@
 (function () {
   'use strict';
 
+  const VERSION = '0.4.2';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -470,7 +471,7 @@
   function canvasMarks() {
     const rs = reports();
     if (!rs.length) return undefined;
-    const marks = { surface: false, corner: false, side: false, cornerPure: false, sidePure: false, drawOnCard: false, labels: [] };
+    const marks = { surface: false, corner: false, side: false, cornerPure: false, sidePure: false, drawOnCard: false, labels: [], dbg: [] };
     const note = (c, sd) => {                                  // un élément de coin / de côté (ou les deux : mixte)
       if (c) marks.corner = true;
       if (sd) marks.side = true;
@@ -494,15 +495,17 @@
           } else if (['text', 'i-text', 'textbox'].indexOf(o.type) >= 0) {
             const l = parseLabel(o.text != null ? o.text : (o.data && o.data.originalText));
             marks.labels.push(l);
+            const dbg = { text: l.text, kind: l.kind, angle: Math.round(o.angle || 0), type: o.type };
+            marks.dbg.push(dbg);
             if (l.kind === 'paren') return;
             if (l.kind !== 'edge') { marks.surface = true; return; }   // défaut de surface (ou texte libre)
             if (l.base === '◜') note(true, false);
             else if (l.base === 'D.U.I' && isDiagonal(o)) note(true, false);   // en diagonale : ne vise que les coins
             else if (l.base === 'D.U.I' || l.base === 'Silv.') {
-              if (ok) { const h = labelHits(o, frame); note(h.corner, h.side); } else { marks.corner = true; marks.side = true; }
+              if (ok) { const h = labelHits(o, frame); dbg.hit = h; note(h.corner, h.side); } else { dbg.noFrame = true; marks.corner = true; marks.side = true; }
             }
           }
-        } catch (e) { /* objet illisible : ignoré */ }
+        } catch (e) { marks.dbg.push({ error: String(e && e.message) }); }   // objet illisible : ignoré (erreur notée pour le diagnostic)
       });
     });
     return marks;
@@ -520,6 +523,7 @@
     const complete = notesComplete(st);
     const noteErrs = !st.rejected && complete ? noteMsgs(st) : [];
     const reds = [...noteErrs];
+    let marks;
     if (!st.rejected) {
       if (isNotation) {
         if (exp.exp === true && !grExists) reds.push('GradeReport attendu : à créer.');
@@ -527,11 +531,11 @@
       } else if (kind) {
         if (exp.exp === false) reds.push('GradeReport non attendu (' + exp.why + ').');
         if (!complete) reds.push('Notation incomplète : cocher toutes les notes.');
-        else reds.push(...grMsgs(st, kind, kind === 'classic' ? canvasMarks() : undefined));
+        else { marks = kind === 'classic' ? canvasMarks() : undefined; reds.push(...grMsgs(st, kind, marks)); }
       }
     }
     const orange = st.temp ? 'Commentaire temporaire présent' : null;
-    return { st, exp, noteErrs, reds, orange, card, sig: reds.length ? 'R:' + reds.join('|') : orange ? 'O' : '' };
+    return { st, exp, noteErrs, reds, orange, card, marks, sig: reds.length ? 'R:' + reds.join('|') : orange ? 'O' : '' };
   }
 
   function msgBox() {
@@ -605,6 +609,7 @@
     if (!ev || !ev.sig) return;
     if (attemptSig === ev.sig) { passUntil = Date.now() + 1500; return; }
     attemptSig = ev.sig;
+    try { if (ev.marks) console.log('[CCC GR v' + VERSION + ']', JSON.stringify({ reds: ev.reds, corner: ev.marks.corner, side: ev.marks.side, surface: ev.marks.surface, labels: ev.marks.dbg })); } catch (e) { /* ignoré */ }
     update();
     beep(e);
     e.preventDefault();
