@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live)
 // @namespace    https://www.cccgrading.com/
-// @version      0.2.3
+// @version      0.3.0
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : boutons colorés selon les règles, message court au-dessus du bouton à la première tentative sur un bouton rouge/orange (un second clic passe). Sans son.
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -151,8 +151,77 @@
     return msgs;
   }
 
+
+  // ───── labels du schéma : le texte d'un objet texte de l'éditeur = label (+ compléments « -Zone », « -Lg. »...) ─────
+  const SFX = { 'Usine': 'usine', 'Lg.': 'lg', 'Min.': 'min', 'Zone': 'zone', 'Glob.': 'glob', 'Vertic.': 'vertic', 'Illust.': 'illust', 'Bordr.': 'bordr', 'Texture': 'texture' };
+  const DEFECT_BASES = ['Def.', 'P1', 'P2', 'P3', '!', 'E', 'T', 'CL', 'R1', 'R2', 'R3', 'T-Empreinte', 'T-Fingerprt.', 'Ink', 'PC', 'PE', 'DL', 'Ondulation', 'Relief'];
+  const EDGE_BASES = ['D.U.I', 'Silv.', '◜', '┆'];        // coins / côtés : ne comptent pas comme défaut de surface
+  function parseLabel(text) {
+    const t = String(text || '').replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();   // les parenthèses sont des ajouts : ignorées
+    if (!t) return { kind: 'paren', base: '', sfx: [], text: '' };
+    let base = t;
+    const sfx = [];
+    for (;;) {
+      const m = base.match(/-(Usine|Lg\.|Min\.|Zone|Glob\.|Vertic\.|Illust\.|Bordr\.|Texture)$/);
+      if (!m) break;
+      sfx.unshift(SFX[m[1]]);
+      base = base.slice(0, m.index);
+    }
+    let kind = 'unknown';
+    if (base === 'Pr.L') kind = 'prl';
+    else if (EDGE_BASES.indexOf(base) >= 0) kind = 'edge';
+    else if (DEFECT_BASES.indexOf(base) >= 0) kind = 'defect';
+    else if (base.indexOf('/') >= 0) kind = 'combo';        // R1/Pr.L, R1/R2, R2/R3 : pas comptés pour l'instant
+    return { kind, base, sfx, text: t };
+  }
+  // Note de surface maximale admise par un label (Infinity = pas de plafond)
+  function maxSurface(l) {
+    const e = l.sfx.filter((x) => x !== 'bordr');            // -Bordr. ne change rien
+    const usine = e.indexOf('usine') >= 0;
+    const has = (x) => e.indexOf(x) >= 0;
+    if (l.base === 'R2') return usine ? 9.5 : 9;
+    if (l.base === 'E') return usine ? 9 : has('min') ? 9 : has('lg') ? 8.5 : e.length ? Infinity : 8;
+    if (l.base === 'T') return usine ? 9.5 : e.length ? Infinity : 9;
+    if (l.base === 'R1') return has('zone') ? (usine ? 9.5 : 8.5) : usine ? 9.5 : Infinity;
+    return usine ? 9.5 : Infinity;                            // -Usine : 9.5 accepté sur n'importe quel label
+  }
+  // Règles surface x labels (schéma classique). labels = liste issue de parseLabel.
+  function labelMsgs(s, labels) {
+    const msgs = [];
+    if (s == null || !labels) return msgs;
+    const defects = labels.filter((l) => l.kind === 'defect');
+    const prl = labels.filter((l) => l.kind === 'prl');
+    const plainR1 = defects.filter((l) => l.base === 'R1' && !l.sfx.length);
+    if (s === 10) {
+      if (prl.some((l) => l.sfx.indexOf('lg') < 0 && l.sfx.indexOf('min') < 0)) msgs.push('Surface 10 : Pr.L seul impossible (Pr.L-Lg. ou Pr.L-Min. uniquement).');
+      const d = defects[0];
+      const exempt = defects.length === 1 && (d.sfx.indexOf('bordr') >= 0 || (d.sfx.indexOf('usine') >= 0 && d.base !== 'E'));
+      if (defects.length && !exempt) {
+        msgs.push('Surface 10 : label ' + defects.map((l) => l.text).join(', ') + ' impossible (admis : D.U.I, Silv., Pr.L-Lg./-Min., ou un défaut unique -Usine/-Bordr.).');
+      }
+      return msgs;
+    }
+    let lim = Infinity, who = '';
+    defects.forEach((l) => { const m = maxSurface(l); if (m < lim) { lim = m; who = l.text; } });
+    if (s > lim) msgs.push('Surface ' + fmt(s) + ' : ' + who + ' impose ' + fmt(lim) + ' maximum.');
+    if (plainR1.length > 5 && s >= 9.5) msgs.push('Surface ' + fmt(s) + ' : plus de 5 R1 (' + plainR1.length + ').');
+    if (plainR1.length && defects.length === plainR1.length && plainR1.length <= 4 && s < 9.5) {
+      msgs.push('R1 seules (' + plainR1.length + ') : la surface ne peut pas être inférieure à 9,5.');
+    }
+    const eff = (l) => l.sfx.filter((x) => x !== 'bordr').join('+');
+    if (defects.length && !prl.length && defects.every((l) => l.base === 'T' && eff(l) === 'lg') && s !== 9.5) {
+      msgs.push('T-Lg seul : surface 9,5 attendue.');
+    }
+    if (!defects.length && prl.length && prl.every((l) => !l.sfx.length) && s !== 9.5) {
+      msgs.push('Pr.L seul : surface 9,5 attendue.');
+    }
+    return msgs;
+  }
+
   // Règles propres au GR (kind = 'classic' | 'simple')
-  // canvas (classique, en création) : { surface, corner, side } (booléens) ou undefined si le schéma est illisible
+  // canvas (classique, en création) : { surface, corner, side, cornerPure, sidePure, drawOnCard, labels } ou undefined si le schéma est illisible
+  // surface/corner/side = justification présente ; cornerPure/sidePure = élément de coin (resp. de côté) qui ne touche pas l'autre zone ;
+  // drawOnCard = tracé draw/line sur la carte ; labels = labels parsés (parseLabel)
   function grMsgs(st, kind, canvas) {
     const msgs = [];
     const sub = calcSub(st);
@@ -165,8 +234,12 @@
       SIDES.forEach((s) => { if (!st.gr[s].dirs.length) msgs.push('Centrage obligatoire au ' + SIDE_FR[s] + '.'); });
       if (canvas) {   // carte entière : un tracé sur le recto OU le verso suffit
         if (sub.surface != null && sub.surface < 10 && !canvas.surface) msgs.push('Surface < 10 : aucun label, tracé (draw) ni ligne (line) sur le schéma.');
-        if (sub.corner != null && sub.corner < 10 && !canvas.corner) msgs.push('Coins < 10 : aucun tracé border sur un coin de la carte.');
-        if (sub.side != null && sub.side < 10 && !canvas.side) msgs.push("Côtés < 10 : aucun tracé border le long d'un bord de la carte.");
+        if (sub.corner != null && sub.corner < 10 && !canvas.corner) msgs.push('Coins < 10 : aucun tracé border sur un coin, ni label ◜, ni D.U.I en diagonale.');
+        if (sub.side != null && sub.side < 10 && !canvas.side) msgs.push("Côtés < 10 : aucun tracé border le long d'un bord, ni label Silv. / D.U.I sur un bord.");
+        if (sub.corner === 10 && canvas.cornerPure) msgs.push('Coins 10 : tracé border, label ◜ ou D.U.I en diagonale sur un coin.');
+        if (sub.side === 10 && canvas.sidePure) msgs.push('Côtés 10 : tracé border ou label Silv. / D.U.I sur un bord.');
+        if (sub.surface === 10 && canvas.drawOnCard) msgs.push('Surface 10 : tracé (draw) ou ligne (line) sur la carte.');
+        msgs.push(...labelMsgs(sub.surface, canvas.labels));
       }
       return msgs;
     }
@@ -210,7 +283,7 @@
   }
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { expectedFinal, expectedGoldBlack, noteMsgs, grMsgs, listingState, expectedGR, notesComplete };
+    module.exports = { parseLabel, labelMsgs, expectedFinal, expectedGoldBlack, noteMsgs, grMsgs, listingState, expectedGR, notesComplete };
   }
   if (typeof document === 'undefined') return;
 
@@ -335,7 +408,27 @@
   const EDGE_TOL = 0.035;      // distance max au contour, en fraction de la largeur de la carte
   const CORNER_MARGIN = 0.012; // marge ajoutée au rayon d'arrondi pour définir le coin
   const SIDE_MIN = 0.02;       // longueur minimale de tracé « côté » (évite un simple débordement)
-  function borderHits(o, frame) {
+  // Points (canvas) -> zones touchées : coin (zone arrondie + marge) et/ou côté (le long d'un bord), à la tolérance près.
+  function zoneHits(pts, frame) {
+    const W = frame.width * (frame.scaleX || 1), H = frame.height * (frame.scaleY || 1);
+    const L = frame.left, T = frame.top;
+    const tol = Math.max(12, EDGE_TOL * W);
+    const c = (frame.rx || 15) + Math.max(3, CORNER_MARGIN * W);
+    let corner = false, sideLen = 0, sidePts = 0, prev = null;
+    pts.forEach((p) => {
+      const dx = Math.min(Math.abs(p[0] - L), Math.abs(p[0] - (L + W)));
+      const dy = Math.min(Math.abs(p[1] - T), Math.abs(p[1] - (T + H)));
+      const inX = p[0] >= L - tol && p[0] <= L + W + tol;
+      const inY = p[1] >= T - tol && p[1] <= T + H + tol;
+      if (!((inX && dy <= tol) || (inY && dx <= tol))) { prev = null; return; }   // pas sur le contour
+      if (dx <= c && dy <= c) { corner = true; prev = null; return; }             // zone de coin
+      sidePts++;
+      if (prev) sideLen += Math.hypot(p[0] - prev[0], p[1] - prev[1]);
+      prev = p;
+    });
+    return { corner, sideLen, sidePts, minSide: Math.max(8, SIDE_MIN * W) };
+  }
+  function pathPoints(o) {
     const m = o.calcTransformMatrix();
     const raw = (o.path || []).map((c) => {
       const p = fabric.util.transformPoint(new fabric.Point(c[c.length - 2] - o.pathOffset.x, c[c.length - 1] - o.pathOffset.y), m);
@@ -348,39 +441,66 @@
       const n = Math.max(1, Math.ceil(Math.hypot(p[0] - a[0], p[1] - a[1]) / 3));
       for (let k = 1; k <= n; k++) pts.push([a[0] + (p[0] - a[0]) * k / n, a[1] + (p[1] - a[1]) * k / n]);
     });
-    const W = frame.width * (frame.scaleX || 1), H = frame.height * (frame.scaleY || 1);
-    const L = frame.left, T = frame.top;
-    const tol = Math.max(12, EDGE_TOL * W);
-    const c = (frame.rx || 15) + Math.max(3, CORNER_MARGIN * W);
-    let corner = false, sideLen = 0, prev = null;
-    pts.forEach((p) => {
-      const dx = Math.min(Math.abs(p[0] - L), Math.abs(p[0] - (L + W)));
-      const dy = Math.min(Math.abs(p[1] - T), Math.abs(p[1] - (T + H)));
-      const inX = p[0] >= L - tol && p[0] <= L + W + tol;
-      const inY = p[1] >= T - tol && p[1] <= T + H + tol;
-      if (!((inX && dy <= tol) || (inY && dx <= tol))) { prev = null; return; }   // pas sur le contour
-      if (dx <= c && dy <= c) { corner = true; prev = null; return; }             // zone de coin
-      if (prev) sideLen += Math.hypot(p[0] - prev[0], p[1] - prev[1]);
-      prev = p;
-    });
-    return { corner, side: sideLen >= Math.max(8, SIDE_MIN * W) };
+    return pts;
   }
+  function borderHits(o, frame) {
+    const h = zoneHits(pathPoints(o), frame);
+    return { corner: h.corner, side: h.sideLen >= h.minSide };
+  }
+  // Un label « touche » une zone si son rectangle englobant atteint la bande du contour (même tolérance que border)
+  function labelHits(o, frame) {
+    const r = o.getBoundingRect(true, true);
+    const pts = [];
+    for (let x = r.left; x <= r.left + r.width + 0.1; x += 3) {
+      for (let y = r.top; y <= r.top + r.height + 0.1; y += 3) pts.push([x, y]);
+    }
+    const h = zoneHits(pts, frame);
+    return { corner: h.corner, side: h.sidePts > 0 };
+  }
+  const isDiagonal = (o) => {                                  // D.U.I en diagonale = tourné ailleurs que ~0/90/180/270 degrés
+    const a = (((o.angle || 0) % 90) + 90) % 90;
+    return Math.min(a, 90 - a) > 15;
+  };
+  const onCard = (pts, frame) => {
+    const W = frame.width * (frame.scaleX || 1), H = frame.height * (frame.scaleY || 1);
+    return pts.some((p) => p[0] >= frame.left && p[0] <= frame.left + W && p[1] >= frame.top && p[1] <= frame.top + H);
+  };
   function canvasMarks() {
     const rs = reports();
     if (!rs.length) return undefined;
-    const marks = { surface: false, corner: false, side: false };
+    const marks = { surface: false, corner: false, side: false, cornerPure: false, sidePure: false, drawOnCard: false, labels: [] };
+    const note = (c, sd) => {                                  // un élément de coin / de côté (ou les deux : mixte)
+      if (c) marks.corner = true;
+      if (sd) marks.side = true;
+      if (c && !sd) marks.cornerPure = true;
+      if (sd && !c) marks.sidePure = true;
+    };
     rs.forEach((r) => {
       let objs = [];
       let frame = null;
       try { objs = r.userObjects || []; frame = fabricOf(r).getObjects().find((x) => x.name === 'backgroundFrame'); } catch (e) { /* illisible */ }
+      const ok = frame && typeof fabric !== 'undefined';
       objs.forEach((o) => {
-        if (o.type === 'path' && o.__cccTool === 'border') {
-          if (frame && typeof fabric !== 'undefined') {
-            const h = borderHits(o, frame);
-            if (h.corner) marks.corner = true;
-            if (h.side) marks.side = true;
-          } else { marks.corner = true; marks.side = true; }   // cadre illisible : on ne bloque pas
-        } else if (['path', 'line', 'text', 'i-text', 'textbox'].indexOf(o.type) >= 0) marks.surface = true;
+        try {
+          if (o.type === 'path' && o.__cccTool === 'border') {
+            if (ok) { const h = borderHits(o, frame); note(h.corner, h.side); } else { marks.corner = true; marks.side = true; }   // cadre illisible : on ne bloque pas
+          } else if (o.type === 'path' || o.type === 'line') {
+            marks.surface = true;
+            if (ok) {
+              if (o.type === 'path' ? onCard(pathPoints(o), frame) : (() => { const b = o.getBoundingRect(true, true); return onCard([[b.left, b.top], [b.left + b.width, b.top], [b.left, b.top + b.height], [b.left + b.width, b.top + b.height], [b.left + b.width / 2, b.top + b.height / 2]], frame); })()) marks.drawOnCard = true;
+            }
+          } else if (['text', 'i-text', 'textbox'].indexOf(o.type) >= 0) {
+            const l = parseLabel(o.text != null ? o.text : (o.data && o.data.originalText));
+            marks.labels.push(l);
+            if (l.kind === 'paren') return;
+            if (l.kind !== 'edge') { marks.surface = true; return; }   // défaut de surface (ou texte libre)
+            if (l.base === '◜') note(true, false);
+            else if (l.base === 'D.U.I' && isDiagonal(o)) note(true, false);   // en diagonale : ne vise que les coins
+            else if (l.base === 'D.U.I' || l.base === 'Silv.') {
+              if (ok) { const h = labelHits(o, frame); note(h.corner, h.side); } else { marks.corner = true; marks.side = true; }
+            }
+          }
+        } catch (e) { /* objet illisible : ignoré */ }
       });
     });
     return marks;
