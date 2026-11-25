@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.6.6
+// @version      0.6.7
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.6';    // affichée dans la console (diagnostic)
+  const VERSION = '0.6.7';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -409,14 +409,14 @@
   // Coin = l'angle arrondi + une toute petite marge ; le reste du contour = côté.
   // Un tracé mixte (coin + côté) valide les deux. Un tracé loin du contour ne valide rien.
   const EDGE_TOL = 0.035;      // distance max au contour, en fraction de la largeur de la carte
-  const CORNER_MARGIN = 0.008; // marge ajoutée au rayon d'arrondi pour définir le coin
+  const CORNER_PX = 18;        // limite de la zone de coin (distance au coin, en unités de l'éditeur pour une carte de 534 de large)
   const SIDE_MIN = 0.02;       // longueur minimale de tracé « côté » (évite un simple débordement)
   // Points (canvas) -> zones touchées : coin (zone arrondie + marge) et/ou côté (le long d'un bord), à la tolérance près.
   function zoneHits(pts, frame) {
     const W = frame.width * (frame.scaleX || 1), H = frame.height * (frame.scaleY || 1);
     const L = frame.left, T = frame.top;
     const tol = Math.max(12, EDGE_TOL * W);
-    const c = (frame.rx || 15) + Math.max(3, CORNER_MARGIN * W);
+    const c = CORNER_PX * (W / 534.24);
     let corner = false, sideLen = 0, sidePts = 0, prev = null;
     pts.forEach((p) => {
       const dx = Math.min(Math.abs(p[0] - L), Math.abs(p[0] - (L + W)));
@@ -456,15 +456,24 @@
   }
   function borderHits(o, frame) {
     const W = frame.width * (frame.scaleX || 1), H = frame.height * (frame.scaleY || 1);
-    const c = (frame.rx || 15) + Math.max(3, CORNER_MARGIN * W);
-    const vis = 1 + (o.strokeWidth || 2) / 2;                 // demi-épaisseur visible autour du contour
+    const c = CORNER_PX * (W / 534.24);
+    // épaisseur : tout le trait compte (rayon = demi-épaisseur, moins 1 de tolérance : un trait fin = son centre)
+    const ext = Math.max(0, (o.strokeWidth || 2) / 2 - 1);
+    const offs = [];
+    for (let ox = -Math.ceil(ext); ox <= Math.ceil(ext); ox++) for (let oy = -Math.ceil(ext); oy <= Math.ceil(ext); oy++) if (Math.hypot(ox, oy) <= ext + 1e-9) offs.push([ox, oy]);
     let corner = false, side = false;
-    pathPoints(o, 1).forEach((p) => {
-      if (Math.abs(contourDist(p, frame)) > vis) return;     // partie cachée
-      const dx = Math.min(Math.abs(p[0] - frame.left), Math.abs(p[0] - (frame.left + W)));
-      const dy = Math.min(Math.abs(p[1] - frame.top), Math.abs(p[1] - (frame.top + H)));
-      if (dx <= c && dy <= c) corner = true; else side = true;
-    });
+    const pts = pathPoints(o, 1);
+    for (let i = 0; i < pts.length && !(corner && side); i++) {
+      const p = pts[i];
+      if (Math.abs(contourDist(p, frame)) > ext + 1.5) continue;         // trop loin du contour : caché
+      for (const [ox, oy] of offs) {
+        const q = [p[0] + ox, p[1] + oy];
+        if (Math.abs(contourDist(q, frame)) > 1.5) continue;               // la partie visible est une fine bande sur le contour
+        const dx = Math.min(Math.abs(q[0] - frame.left), Math.abs(q[0] - (frame.left + W)));
+        const dy = Math.min(Math.abs(q[1] - frame.top), Math.abs(q[1] - (frame.top + H)));
+        if (dx <= c && dy <= c) corner = true; else side = true;
+      }
+    }
     return { corner, side };
   }
   // Un label « touche » une zone si son rectangle englobant atteint la bande du contour (même tolérance que border)
