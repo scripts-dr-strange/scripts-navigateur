@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live)
 // @namespace    https://www.cccgrading.com/
-// @version      0.3.4
+// @version      0.3.5
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : boutons colorés selon les règles, message court au-dessus du bouton à la première tentative sur un bouton rouge/orange (un second clic passe). Sans son.
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.3.4';    // affichée dans la console (diagnostic)
+  const VERSION = '0.3.5';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -446,8 +446,19 @@
     });
     return pts;
   }
+  // Seule la partie VISIBLE d'un tracé border compte : l'éditeur le découpe (clipPath) à la carte arrondie.
+  // On écarte donc les points hors de la carte (marge = demi-épaisseur du trait) ; un point écarté coupe la continuité.
+  function insideCard(p, frame, m) {
+    const W = frame.width * (frame.scaleX || 1), H = frame.height * (frame.scaleY || 1);
+    const L = frame.left - m, T = frame.top - m, R = frame.left + W + m, B = frame.top + H + m, r = (frame.rx || 15) + m;
+    if (p[0] < L || p[0] > R || p[1] < T || p[1] > B) return false;
+    const cx = p[0] < L + r ? L + r : p[0] > R - r ? R - r : null, cy = p[1] < T + r ? T + r : p[1] > B - r ? B - r : null;
+    if (cx == null || cy == null) return true;
+    return Math.hypot(p[0] - cx, p[1] - cy) <= r;
+  }
   function borderHits(o, frame) {
-    const h = zoneHits(pathPoints(o), frame);
+    const m = (o.strokeWidth || 2) / 2 + 1;
+    const h = zoneHits(pathPoints(o).map((p) => insideCard(p, frame, m) ? p : [1e9, 1e9]), frame);
     return { corner: h.corner, side: h.sideLen >= h.minSide };
   }
   // Un label « touche » une zone si son rectangle englobant atteint la bande du contour (même tolérance que border)
