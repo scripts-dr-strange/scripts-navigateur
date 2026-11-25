@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.6.1
+// @version      0.6.2
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.1';    // affichée dans la console (diagnostic)
+  const VERSION = '0.6.2';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -593,6 +593,11 @@
   window.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown') downHeld = true; }, true);
   window.addEventListener('keyup', (e) => { if (e.key === 'ArrowDown') downHeld = false; }, true);
   window.addEventListener('blur', () => { downHeld = false; });
+  // Appui long : rester appuyé 1 s ou plus sur le bouton puis relâcher = même effet que Option + clic.
+  const LONG_MS = 1000;
+  let pressAt = 0, longPress = false;
+  document.addEventListener('pointerdown', () => { pressAt = Date.now(); }, true);
+  const isOpt = (e) => !!e && (e.altKey || longPress);
   const fire = (name) => { try { document.dispatchEvent(new CustomEvent(name)); } catch (err) { /* ignoré */ } };
   // Mode du son avec Option : 'quiet' (silence) si le seul souci est GradeReport (aucun attendu, ou attendu mais pas
   // créé) ; 'error' (vrai son d'erreur, même avec Option) si une autre erreur s'y ajoute ; 'chicken' sinon.
@@ -604,12 +609,12 @@
     return (ev.reds.some((r) => !isGr(r)) || ev.orange) ? 'error' : 'quiet';
   };
   // Clic sur un bouton d'action qui n'est PAS bloqué : seul Option fait du bruit (chicken).
-  const optClick = (e, mode) => { if (downHeld || mode !== 'chicken' || !e || !e.altKey) return; fire('ccc-guard-sound-chicken'); };
+  const optClick = (e, mode) => { if (downHeld || mode !== 'chicken' || !isOpt(e)) return; fire('ccc-guard-sound-chicken'); };
   // Clic bloqué avec avertissement : son d'erreur, ou (avec Option) chicken / silence / son d'erreur selon le mode ; rien avec la flèche du bas.
   const beep = (e, mode) => {
     if (downHeld) return;
-    if (e && e.altKey && mode === 'chicken') { fire('ccc-guard-sound-chicken'); return; }
-    if (e && e.altKey && mode === 'quiet') return;
+    if (isOpt(e) && mode === 'chicken') { fire('ccc-guard-sound-chicken'); return; }
+    if (isOpt(e) && mode === 'quiet') return;
     fire('ccc-guard-sound');
   };
 
@@ -658,6 +663,7 @@
   }
 
   document.addEventListener('click', (e) => {
+    longPress = pressAt > 0 && Date.now() - pressAt >= LONG_MS; pressAt = 0;
     hideBubble();
     if (!cur || !e.target.closest) return;
     const retry = e.target.closest('.report-retry-button');
