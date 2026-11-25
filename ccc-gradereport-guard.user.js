@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live)
 // @namespace    https://www.cccgrading.com/
-// @version      0.3.2
+// @version      0.3.3
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : boutons colorés selon les règles, message court au-dessus du bouton à la première tentative sur un bouton rouge/orange (un second clic passe). Sans son.
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.3.2';    // affichée dans la console (diagnostic)
+  const VERSION = '0.3.3';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -409,7 +409,7 @@
   // Coin = l'angle arrondi + une toute petite marge ; le reste du contour = côté.
   // Un tracé mixte (coin + côté) valide les deux. Un tracé loin du contour ne valide rien.
   const EDGE_TOL = 0.035;      // distance max au contour, en fraction de la largeur de la carte
-  const CORNER_MARGIN = 0.012; // marge ajoutée au rayon d'arrondi pour définir le coin
+  const CORNER_MARGIN = 0.006; // marge ajoutée au rayon d'arrondi pour définir le coin
   const SIDE_MIN = 0.02;       // longueur minimale de tracé « côté » (évite un simple débordement)
   // Points (canvas) -> zones touchées : coin (zone arrondie + marge) et/ou côté (le long d'un bord), à la tolérance près.
   function zoneHits(pts, frame) {
