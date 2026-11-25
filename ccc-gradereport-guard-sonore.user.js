@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.6.5
+// @version      0.6.6
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.5';    // affichée dans la console (diagnostic)
+  const VERSION = '0.6.6';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -431,7 +431,7 @@
     });
     return { corner, sideLen, sidePts, minSide: Math.max(8, SIDE_MIN * W) };
   }
-  function pathPoints(o) {
+  function pathPoints(o, step) {
     const m = o.calcTransformMatrix();
     const raw = (o.path || []).map((c) => {
       const p = fabric.util.transformPoint(new fabric.Point(c[c.length - 2] - o.pathOffset.x, c[c.length - 1] - o.pathOffset.y), m);
@@ -441,25 +441,31 @@
     raw.forEach((p, i) => {                                    // densification tous les ~3 px
       if (!i) { pts.push(p); return; }
       const a = raw[i - 1];
-      const n = Math.max(1, Math.ceil(Math.hypot(p[0] - a[0], p[1] - a[1]) / 3));
+      const n = Math.max(1, Math.ceil(Math.hypot(p[0] - a[0], p[1] - a[1]) / (step || 3)));
       for (let k = 1; k <= n; k++) pts.push([a[0] + (p[0] - a[0]) * k / n, a[1] + (p[1] - a[1]) * k / n]);
     });
     return pts;
   }
-  // Seule la partie VISIBLE d'un tracé border compte : l'éditeur le découpe (clipPath) à la carte arrondie.
-  // On écarte donc les points hors de la carte (marge = demi-épaisseur du trait) ; un point écarté coupe la continuité.
-  function insideCard(p, frame, m) {
-    const W = frame.width * (frame.scaleX || 1), H = frame.height * (frame.scaleY || 1);
-    const L = frame.left - m, T = frame.top - m, R = frame.left + W + m, B = frame.top + H + m, r = (frame.rx || 15) + m;
-    if (p[0] < L || p[0] > R || p[1] < T || p[1] > B) return false;
-    const cx = p[0] < L + r ? L + r : p[0] > R - r ? R - r : null, cy = p[1] < T + r ? T + r : p[1] > B - r ? B - r : null;
-    if (cx == null || cy == null) return true;
-    return Math.hypot(p[0] - cx, p[1] - cy) <= r;
+  // Un tracé border n'est visible que là où il croise le contour de la carte (l'éditeur le découpe à ce contour :
+  // il ne reste qu'un petit point à chaque croisement). Seuls ces points comptent : corner s'ils sont dans la zone
+  // de coin, côté sinon (un seul point visible suffit). Distance au contour d'un rectangle arrondi :
+  function contourDist(p, frame) {
+    const W = frame.width * (frame.scaleX || 1), H = frame.height * (frame.scaleY || 1), r = frame.rx || 15;
+    const qx = Math.abs(p[0] - (frame.left + W / 2)) - (W / 2 - r), qy = Math.abs(p[1] - (frame.top + H / 2)) - (H / 2 - r);
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
   }
   function borderHits(o, frame) {
-    const m = (o.strokeWidth || 2) / 2 + 1;
-    const h = zoneHits(pathPoints(o).map((p) => insideCard(p, frame, m) ? p : [1e9, 1e9]), frame);
-    return { corner: h.corner, side: h.sideLen >= h.minSide };
+    const W = frame.width * (frame.scaleX || 1), H = frame.height * (frame.scaleY || 1);
+    const c = (frame.rx || 15) + Math.max(3, CORNER_MARGIN * W);
+    const vis = 1 + (o.strokeWidth || 2) / 2;                 // demi-épaisseur visible autour du contour
+    let corner = false, side = false;
+    pathPoints(o, 1).forEach((p) => {
+      if (Math.abs(contourDist(p, frame)) > vis) return;     // partie cachée
+      const dx = Math.min(Math.abs(p[0] - frame.left), Math.abs(p[0] - (frame.left + W)));
+      const dy = Math.min(Math.abs(p[1] - frame.top), Math.abs(p[1] - (frame.top + H)));
+      if (dx <= c && dy <= c) corner = true; else side = true;
+    });
+    return { corner, side };
   }
   // Un label « touche » une zone si son rectangle englobant atteint la bande du contour (même tolérance que border)
   function labelHits(o, frame) {
