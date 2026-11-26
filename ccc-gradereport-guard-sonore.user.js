@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.6.7
+// @version      0.6.8
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.7';    // affichée dans la console (diagnostic)
+  const VERSION = '0.6.8';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -666,6 +666,7 @@
     if (attemptSig === ev.sig) { passUntil = Date.now() + 1500; optClick(e, mode); return; }
     attemptSig = ev.sig;
     try { if (ev.marks) console.log('[CCC GR v' + VERSION + ']', JSON.stringify({ reds: ev.reds, corner: ev.marks.corner, side: ev.marks.side, surface: ev.marks.surface, labels: ev.marks.dbg })); } catch (e2) { /* ignoré */ }
+    try { console.log('[CCC GR v' + VERSION + '] clic bloqué', JSON.stringify({ mode, alt: !!e.altKey, long: longPress, bas: downHeld, grAttendu: ev.exp.exp, reds: ev.reds, orange: ev.orange })); } catch (e3) { /* ignoré */ }
     update();
     beep(e, mode);
     e.preventDefault();
@@ -681,6 +682,7 @@
     // l'avertissement vaut pour les deux boutons « Créer un GR » (le second est grisé aussi et passe directement)
     $$('.report-retry-button', cur.wrapper).forEach((b) => retryWarned.add(b.getAttribute('data-report-retry') || b.textContent));
     retryWarned.add(key);
+    try { console.log('[CCC GR v' + VERSION + '] clic bloqué (créer un GR)', JSON.stringify({ mode, alt: !!e.altKey, long: longPress, bas: downHeld, grAttendu: ev.exp.exp, reds: ev.reds, orange: ev.orange })); } catch (e3) { /* ignoré */ }
     update();
     beep(e, mode);
     showBubble(btn, 'GradeReport non attendu (' + ev.exp.why + '). Recliquer pour continuer.');
