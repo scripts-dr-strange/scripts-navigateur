@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.6.8
+// @version      0.6.9
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.8';    // affichée dans la console (diagnostic)
+  const VERSION = '0.6.9';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -552,6 +552,11 @@
     let marks;
     if (!st.rejected) {
       if (isNotation) {
+        if (!complete) {   // sous-note ou note finale manquante à l'enregistrement de la notation
+          const miss = KEYS.filter((k) => !st.flags[k] && st.sub[k] == null).map((k) => KEY_FR[k]);
+          if (st.cardNote == null) miss.push('note finale');
+          reds.push('Notation incomplète : ' + miss.join(', ') + ' à renseigner.');
+        }
         if (exp.exp === true && !grExists) reds.push('GradeReport attendu : à créer.');
         if (exp.exp === false && grExists) reds.push('GradeReport non attendu mais présent.');
       } else if (kind) {
