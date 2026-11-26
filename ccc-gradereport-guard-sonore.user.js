@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CCC - Couleurs GradeReport (live) - VERSION SONORE
 // @namespace    https://www.cccgrading.com/ccc-gradereport-guard-sonore
-// @version      0.6.9
+// @version      0.6.10
 // @description  Listing : bouton de notation vert si tout est correct, rouge sombre si Refus. Pop-in : rien de coloré au départ ; à la première tentative sur un bouton en erreur il se colore, un message court s'affiche au-dessus et un son est demandé (un second clic passe).
 // @match        https://www.cccgrading.com/*/admin/ecommerce/orders/*/show*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '0.6.9';    // affichée dans la console (diagnostic)
+  const VERSION = '0.6.10';    // affichée dans la console (diagnostic)
   const CFG = { seuilValeur: 100 };
   const COL = { grey: '#4d4d4d', greyText: '#b3b3b3', green: '#188038', red: '#d93025', refus: '#7a0c0c', orange: '#f29900' };
 
@@ -264,10 +264,13 @@
       } else {
         const worst = others.length ? Math.min(...others) : null;
         const top = Math.max(rk('front'), rk('back'));
+        // égalité de la pire sous-note (ex. 5 & 5) : on tolère le palier du cran inférieur (5 & 5 = Importante, 7 & 7 = Moyenne...)
+        const tie = worst != null && worst < 10 && others.filter((v) => v === worst).length >= 2;
+        const capKey = tie ? (SCALE[SCALE.indexOf(worst) + 1] != null ? SCALE[SCALE.indexOf(worst) + 1] : worst) : worst;
         if (worst == null || !(worst in WEAR_CAP)) {
           msgs.push('Pire sous-note (' + fmt(worst) + ') hors table : usure à vérifier manuellement.');
-        } else if (top > WEAR_CAP[worst]) {
-          msgs.push('Usure ' + WEAR_FR[top] + ' trop sévère pour la pire sous-note ' + fmt(worst) + ' (max : ' + WEAR_FR[WEAR_CAP[worst]] + ').');
+        } else if (top > WEAR_CAP[capKey]) {
+          msgs.push('Usure ' + WEAR_FR[top] + ' trop sévère pour ' + (tie ? 'l\'égalité ' + fmt(worst) + ' & ' + fmt(worst) : 'la pire sous-note ' + fmt(worst)) + ' (max : ' + WEAR_FR[WEAR_CAP[capKey]] + ').');
         }
         const justified = (s) => st.gr[s].impact || st.gr[s].comment;
         if (rk('front') > rk('back') && !justified('front')) msgs.push('Usure recto > verso : élément impactant ou commentaire à renseigner au recto.');
