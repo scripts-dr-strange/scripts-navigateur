@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cardmarket - Suivi des offres + filtres par défaut
 // @namespace    raf.cardmarket
-// @version      1.4.0
+// @version      1.5.0
 // @description  Flags sur les offres, alerte si prix/état modifié, filtres par défaut, cartes favorites, messages types
 // @match        https://www.cardmarket.com/*
 // @run-at       document-start
@@ -21,15 +21,17 @@
   const CONDS = { 0: 'Tous', 1: 'MT', 2: 'NM', 3: 'EX', 4: 'GD', 5: 'LP', 6: 'PL', 7: 'PO' };
   // color : bouton actif et liseré ; row : fond de ligne ; ink : couleur de l'icône sur le bouton actif ; icon : tracé SVG 24x24
   const STATUS = {
-    sent: { label: 'Demande envoyée', short: 'Envoyée', color: '#2e9e44', row: '#c9eecf', ink: '#fff',
+    sent: { label: 'Demande envoyée', short: 'Envoyée', color: '#1e73d8', row: '#cfe3fb', ink: '#fff',
       icon: 'M22 2 11 13 M22 2 15 22 11 13 2 9 22 2' }, // avion en papier
     relance: { label: 'Relance 1', short: 'Relance', color: '#f2c200', row: '#fff1a8', ink: '#222',
       icon: 'M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9 M13.7 21a2 2 0 0 1-3.4 0' }, // cloche
-    bad: { label: 'État non conforme', short: 'Non conf.', color: '#d93025', row: '#f5aea8', ink: '#fff',
-      icon: 'M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z M12 9v4 M12 17h.01' }, // alerte
+    ok: { label: 'État satisfaisant', short: 'Satisfaisant', color: '#2e9e44', row: '#c9eecf', ink: '#fff', gap: true,
+      icon: 'M7 11v10H3V11z M7 11l4-8a2.5 2.5 0 0 1 2.5 2.5V9h5.5a2 2 0 0 1 2 2.3l-1.3 8a2 2 0 0 1-2 1.7H7' }, // pouce levé
     meh: { label: 'État pas fou', short: 'Pas fou', color: '#c8ad7f', row: '#efe3c8', ink: '#222',
       icon: 'M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18z M8 15h8 M9 9h.01 M15 9h.01' }, // visage neutre
-    firm: { label: 'Non négociable', short: 'Non négo.', color: '#c8ad7f', row: '#efe3c8', ink: '#222',
+    bad: { label: 'État non conforme', short: 'Non conf.', color: '#d93025', row: '#f5aea8', ink: '#fff',
+      icon: 'M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z M12 9v4 M12 17h.01' }, // alerte
+    firm: { label: 'Non négociable', short: 'Non négo.', color: '#c8ad7f', row: '#efe3c8', ink: '#222', gap: true,
       icon: 'M5 11h14v10H5z M8 11V7a4 4 0 0 1 8 0v4' }, // cadenas
     expensive: { label: 'Trop cher', short: 'Trop cher', color: '#ef9a9a', row: '#fce4e4', ink: '#222',
       icon: 'M18 6.5a7 7 0 1 0 0 11 M3 10h10 M3 14h8' }, // euro
@@ -165,9 +167,10 @@
     .article-row[data-cmf] div:not(.cmf-side):not(.cmf-note){background-color:transparent!important}
     .article-row{position:relative}
     .article-row[data-cmf] .cmf-side,.article-row[data-cmf] .cmf-side div,.article-row .cmf-side,.article-row .cmf-side div{background-color:transparent!important;border:0!important;box-shadow:none!important}
-    .article-row>.cmf-side{position:absolute;top:0;bottom:0;left:calc(100% + 16px);display:flex;align-items:center;gap:4px;width:var(--cmf-w,200px)!important;max-width:none!important;padding:0;white-space:nowrap}
-    .cmf-btn{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid #888;border-radius:5px;background:#fff;color:#555;cursor:pointer}
+    .article-row>.cmf-side{position:absolute;top:0;bottom:0;left:calc(100% + 16px);display:flex;align-items:center;gap:4px;width:var(--cmf-w,230px)!important;max-width:none!important;padding:0;white-space:nowrap}
+    .cmf-btn{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid #888;border-radius:5px;background:#fff;color:#555;cursor:pointer}
     .cmf-btn:hover{border-color:#222;color:#000}
+    .cmf-btn.cmf-gap{margin-left:10px}
     .cmf-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
     .cmf-note{display:flex;align-items:center;gap:5px;min-width:0;margin-left:3px;overflow:hidden;font-size:11px;line-height:1.2;color:#666}
     .cmf-note span{white-space:normal;max-height:2.4em;overflow:hidden}
@@ -243,7 +246,7 @@
 
   function buildSide(row) {
     const buttons = Object.entries(STATUS).map(([key, st]) => {
-      const b = button('', () => toggleStatus(row, key), 'cmf-btn');
+      const b = button('', () => toggleStatus(row, key), st.gap ? 'cmf-btn cmf-gap' : 'cmf-btn');
       b.dataset.status = key;
       b.append(icon(st.icon));
       return b;
@@ -257,7 +260,7 @@
   function layout() {
     const table = document.querySelector('.article-table');
     if (!table) return;
-    const MIN = 312; // 6 boutons + note sur deux lignes
+    const MIN = 336; // 7 boutons en 3 groupes + note sur deux lignes
     const width = document.documentElement.clientWidth;
     table.style.marginRight = '';
     let space = width - table.getBoundingClientRect().right;
@@ -265,7 +268,7 @@
       table.style.marginRight = `${Math.ceil(MIN - space)}px`;
       space = width - table.getBoundingClientRect().right;
     }
-    document.documentElement.style.setProperty('--cmf-w', `${Math.max(282, Math.floor(space) - 22)}px`);
+    document.documentElement.style.setProperty('--cmf-w', `${Math.max(310, Math.floor(space) - 22)}px`);
   }
 
   const day = (t) => new Date(t).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
