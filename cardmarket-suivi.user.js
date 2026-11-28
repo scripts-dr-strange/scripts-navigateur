@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cardmarket - Suivi des offres + filtres par défaut
 // @namespace    raf.cardmarket
-// @version      1.2.0
-// @description  Flags couleur persistants sur les offres, alerte si prix/état modifié, filtres langue/état par défaut
+// @version      1.3.0
+// @description  Flags sur les offres, alerte si prix/état modifié, filtres par défaut, cartes favorites, messages types
 // @match        https://www.cardmarket.com/*
 // @run-at       document-start
 // @grant        GM_getValue
@@ -178,6 +178,35 @@
     .cmf-bar button{margin-left:0}
     .cmf-bar .cmf-primary{background:#0d5fb3;border-color:#0d5fb3;color:#fff}
     .cmf-bar details{margin-top:6px}
+    .cmf-fav{margin-left:12px;padding:3px 10px;border:1px solid #b58900;border-radius:5px;background:#fff;color:#7a5c00;font-size:13px;font-weight:600;vertical-align:middle;cursor:pointer}
+    .cmf-fav.cmf-on{background:#ffd54a;color:#222}
+    .cmf-bar .cmf-fav{margin-left:0;border-color:#b58900}
+    .cmf-bar .cmf-fav.cmf-on{background:#ffd54a}
+    .cmf-home{margin:16px auto}
+    .cmf-home h2{font-size:20px;margin-bottom:10px}
+    .cmf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+    .cmf-card{position:relative;border:1px solid #ccd5e0;border-radius:6px;background:#fff}
+    .cmf-card a{display:flex;gap:10px;padding:6px 26px 6px 6px;color:#222;text-decoration:none}
+    .cmf-card a:hover{background:#eef4fb}
+    .cmf-card img{flex:0 0 46px;width:46px;height:64px;object-fit:cover;border-radius:3px;background:#e5e9ef}
+    .cmf-card a span{display:flex;flex-direction:column;justify-content:center;min-width:0;line-height:1.35}
+    .cmf-card strong{font-size:13px}
+    .cmf-card small{font-size:11px;color:#666}
+    .cmf-card small.cmf-price{color:#0d5fb3}
+    .cmf-card .cmf-remove{position:absolute;top:3px;right:5px;padding:0 4px;border:0;background:none;color:#999;cursor:pointer}
+    .cmf-msg{display:flex;flex-wrap:wrap;align-items:center;gap:6px;width:100%;padding:6px 8px;background:#eef4fb;border:1px solid #9bb0c9;border-radius:6px;font-size:12px}
+    .cmf-msg input{padding:3px 6px;font-size:12px;border:1px solid #999;border-radius:4px;min-width:200px}
+    .cmf-msg input.cmf-offer{min-width:0;width:90px}
+    .cmf-tpls{display:contents}
+    .cmf-msg button,.cmf-modal button{padding:3px 9px;font-size:12px;border:1px solid #777;border-radius:4px;background:#fff;color:#222;cursor:pointer}
+    .cmf-msg button.cmf-primary,.cmf-modal button.cmf-primary{background:#0d5fb3;border-color:#0d5fb3;color:#fff}
+    .cmf-modal{position:fixed;inset:0;z-index:100001;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)}
+    .cmf-modal>div{width:min(640px,94vw);max-height:90vh;overflow:auto;padding:16px;border-radius:8px;background:#fff;color:#222;font-size:13px}
+    .cmf-tpl{margin-bottom:12px}
+    .cmf-tpl>div{display:flex;gap:8px;margin-bottom:4px}
+    .cmf-tpl input{flex:1;padding:4px 6px}
+    .cmf-tpl textarea{width:100%;padding:6px;font-size:13px}
+    .cmf-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
   `;
 
   function el(tag, props = {}, ...children) {
@@ -305,6 +334,202 @@
     }
   }
 
+  // ---------- Cartes favorites ----------
+  const FAV = 'fav:';
+  const gameOf = (productPath) => productPath.split('/')[1] || '';
+  const langPrefix = () => location.pathname.split('/')[1] || 'en';
+  const favorites = () => GM_listValues().filter((k) => k.startsWith(FAV)).map((k) => GM_getValue(k)).filter(Boolean);
+
+  function readCard() {
+    const p = pageType();
+    const h1 = document.querySelector('.page-title-container h1') || document.querySelector('main h1');
+    if (!p || p.type !== 'product' || !h1) return null;
+    const first = [...h1.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+    const name = (first ? first.textContent : text(h1)).replace(/\s+/g, ' ').trim();
+    const set = text(h1.querySelector('span:not(.cmf-fav-wrap)')).replace(/\s+-\s+[^-]+$/, '');
+    const idProduct = (document.querySelector('input[name="idProduct"]') || {}).value;
+    const og = document.querySelector('meta[property="og:image"]');
+    const match = idProduct && [...document.querySelectorAll('.card-image img')].find((i) => i.src.split('?')[0].endsWith(`/${idProduct}.jpg`));
+    const img = (match && match.src) || (og && og.content) || '';
+    const path = stripLang(location.pathname).replace(/\/$/, '');
+    return { path, game: gameOf(path), name, set, img };
+  }
+
+  // Prix le plus bas affiché, avec les filtres en cours
+  function lowestOffer() {
+    const offers = [...document.querySelectorAll('.article-row')].map(readRow).filter((d) => d && d.price != null);
+    if (!offers.length) return null;
+    const best = offers.reduce((a, b) => (b.price < a.price ? b : a));
+    const q = new URL(location.href).searchParams;
+    const filters = [CONDS[q.get('minCondition')], LANGS[q.get('language')]].filter(Boolean).join(' ');
+    return { from: best.priceText, filters };
+  }
+
+  const favKey = (card) => FAV + card.path;
+  function toggleFavorite() {
+    const card = readCard();
+    if (!card) return;
+    if (GM_getValue(favKey(card), null)) GM_deleteValue(favKey(card));
+    else GM_setValue(favKey(card), Object.assign({}, card, lowestOffer(), { addedAt: Date.now(), seenAt: Date.now() }));
+    renderAll();
+  }
+
+  function favButton() {
+    const b = button('', toggleFavorite, 'cmf-fav');
+    return b;
+  }
+
+  function renderProductExtras() {
+    const card = readCard();
+    if (!card) return;
+    const h1 = document.querySelector('.page-title-container h1') || document.querySelector('main h1');
+    if (!h1.querySelector('.cmf-fav')) h1.append(favButton());
+    const bar = document.querySelector('.cmf-bar .cmf-line');
+    if (bar && !bar.querySelector('.cmf-fav')) bar.prepend(favButton());
+    const fav = GM_getValue(favKey(card), null);
+    document.querySelectorAll('.cmf-fav').forEach((b) => {
+      const label = fav ? '★ Dans les favoris' : '☆ Ajouter aux favoris';
+      if (b.textContent !== label) b.textContent = label;
+      b.classList.toggle('cmf-on', !!fav);
+      b.title = fav ? 'Retirer des favoris' : 'Ajouter la carte aux favoris';
+    });
+    const offer = lowestOffer();
+    if (fav && offer && (fav.from !== offer.from || fav.filters !== offer.filters || fav.img !== card.img)) {
+      GM_setValue(favKey(card), Object.assign({}, fav, card, offer, { seenAt: Date.now() }));
+    }
+    // Historique des cartes consultées : sert à préremplir les messages
+    const sellers = [...new Set([...document.querySelectorAll('.article-row .seller-name a')].map(text))];
+    const recent = GM_getValue('recent', []);
+    const entry = { path: card.path, name: card.name, sellers };
+    if (JSON.stringify(recent[0]) !== JSON.stringify(entry)) {
+      GM_setValue('recent', [entry, ...recent.filter((r) => r.path !== card.path)].slice(0, 30));
+    }
+  }
+
+  function renderHome() {
+    const m = location.pathname.match(/^\/[a-z]{2}\/([^/]+)\/?$/);
+    const main = document.querySelector('main');
+    if (!m || !main) return;
+    const list = favorites().filter((f) => f.game === m[1]).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    const sig = JSON.stringify(list);
+    let box = main.querySelector('.cmf-home');
+    if (box && box.dataset.sig === sig) return;
+    if (!box) {
+      box = el('section', { className: 'cmf-home container' });
+      const carousel = main.querySelector('#marketingCarousel');
+      if (carousel) carousel.after(box); else main.prepend(box);
+    }
+    box.dataset.sig = sig;
+    const grid = el('div', { className: 'cmf-grid' });
+    list.forEach((f) => {
+      const thumb = el('img', { alt: '', loading: 'lazy' });
+      if (/^https:\/\/[a-z0-9.-]*cardmarket\.com\//.test(f.img)) thumb.src = f.img;
+      const link = el('a', { href: `/${langPrefix()}${f.path}` }, thumb,
+        el('span', {},
+          el('strong', { textContent: f.name }),
+          el('small', { textContent: f.set || '' }),
+          el('small', { className: 'cmf-price', textContent: f.from ? `Dès ${f.from}${f.filters ? ` (${f.filters})` : ''} - vu le ${day(f.seenAt)}` : '' })));
+      const remove = button('✕', () => { GM_deleteValue(favKey(f)); renderAll(); }, 'cmf-remove');
+      remove.title = 'Retirer des favoris';
+      grid.append(el('div', { className: 'cmf-card' }, link, remove));
+    });
+    box.replaceChildren(el('h2', { textContent: `★ Mes cartes favorites (${list.length})` }),
+      list.length ? grid : el('p', { textContent: 'Aucune favorite pour ce jeu. Utilise "☆ Ajouter aux favoris" sur la page d\'une carte.' }));
+  }
+
+  // ---------- Messages types ----------
+  const OUTRO = 'N\'hésitez pas à m\'indiquer les défauts que vous voyez 🙏 Merci beaucoup 😊\n\nMerci';
+  const DEFAULT_TEMPLATES = [
+    { title: 'Photos + NM-/NM', text: `Bonjour,\n\nJe suis potentiellement intéressé par votre {carte}\n\nAuriez-vous des photos s'il vous plait :) ?\n\nAfin de savoir si c'est plutôt un NM- ou plutôt un NM sans aucune rayure\n\n${OUTRO}` },
+    { title: 'Recto / verso', text: `Bonjour,\n\nEst-ce possible d'avoir des photos recto/verso de votre {carte} svp ? :)\nJe cherche à m'assurer qu'elle ne soit pas rayée et jamais posée sur une table sans pochette.\n\n${OUTRO}` },
+    { title: 'Verso rayures', text: `Bonjour,\n\nEst-ce possible d'avoir des photos du verso de votre {carte} svp ? :) Principalement le verso avec une lumière qui révèlerait les rayures au back\n\nEst-ce plutôt un NM- ou plutôt un NM sans aucune rayure ?\n\n${OUTRO}` },
+    { title: 'Offre de prix', text: 'Bonjour,\n\nJe suis potentiellement intéressé par votre {carte}\nAccepteriez-vous une offre à {prix} € ? Je me permets car il y a eu quelques ventes à ce prix-là récemment sur les groupes FB\n\nMerci pour votre considération 😊' },
+  ];
+  const templates = () => GM_getValue('templates', DEFAULT_TEMPLATES);
+
+  function sellerFromPage() {
+    const m = location.pathname.match(/\/Account\/Messages\/([^/]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  // Cartes probables pour ce vendeur : suivies, puis consultées chez lui, puis le reste
+  function cardSuggestions(seller) {
+    const recent = GM_getValue('recent', []);
+    const names = new Map(recent.concat(favorites()).map((c) => [c.path, c.name]));
+    const slug = (path) => (path || '').replace(/\/$/, '').split('/').pop().replace(/-/g, ' ');
+    const flagged = allFlags().filter((f) => f.seller === seller).sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((f) => names.get(f.product) || slug(f.product));
+    const seen = recent.filter((r) => (r.sellers || []).includes(seller)).map((r) => r.name);
+    const likely = [...new Set(flagged.concat(seen))].filter(Boolean);
+    return { best: likely[0] || '', all: [...new Set(likely.concat(recent.map((r) => r.name)))].filter(Boolean) };
+  }
+
+  function insertTemplate(area, tpl, card, price) {
+    if (area.value.trim() && area.value !== area.dataset.cmfLast && !confirm('Remplacer le message en cours ?')) return;
+    const values = { carte: card.trim() || '___', prix: price.trim().replace(/\s*€$/, '') || '___', vendeur: sellerFromPage() };
+    const message = tpl.text.replace(/\{(carte|prix|vendeur)\}/g, (m, k) => values[k]);
+    area.value = message;
+    area.dataset.cmfLast = area.value;
+    area.dispatchEvent(new Event('input', { bubbles: true }));
+    area.style.height = `${Math.min(area.scrollHeight + 4, window.innerHeight * 0.45)}px`;
+    area.focus();
+    const hole = area.value.indexOf('___');
+    if (hole >= 0) area.setSelectionRange(hole, hole + 3);
+    if (area.maxLength > 0 && message.length > area.maxLength) alert(`Message trop long : ${message.length} / ${area.maxLength} caractères.`);
+  }
+
+  function openEditor(onSaved) {
+    if (document.querySelector('.cmf-modal')) return;
+    const list = el('div');
+    const addItem = (t) => {
+      const title = el('input', { type: 'text', value: t.title, placeholder: 'Nom du bouton' });
+      const body = el('textarea', { value: t.text, rows: 7 });
+      const item = el('div', { className: 'cmf-tpl' });
+      item.append(el('div', {}, title, button('Supprimer', () => item.remove())), body);
+      list.append(item);
+    };
+    templates().forEach(addItem);
+    const modal = el('div', { className: 'cmf-modal' });
+    const save = () => {
+      const next = [...list.children].map((item) => ({ title: item.querySelector('input').value.trim() || 'Sans nom', text: item.querySelector('textarea').value }))
+        .filter((t) => t.text.trim());
+      GM_setValue('templates', next);
+      modal.remove();
+      onSaved();
+    };
+    modal.append(el('div', {},
+      el('h3', { textContent: 'Mes messages types' }),
+      el('p', { textContent: 'Variables remplacées à l\'insertion : {carte}, {prix}, {vendeur}' }),
+      list,
+      el('div', { className: 'cmf-actions' },
+        button('+ Ajouter un message', () => { addItem({ title: '', text: 'Bonjour,\n\n' }); list.lastChild.querySelector('input').focus(); }),
+        button('Remettre les 4 d\'origine', () => { if (confirm('Remplacer la liste par les messages d\'origine ?')) { list.replaceChildren(); DEFAULT_TEMPLATES.forEach(addItem); } }),
+        button('Annuler', () => modal.remove()),
+        button('Enregistrer', save, 'cmf-primary'))));
+    document.body.append(modal);
+  }
+
+  function renderMessages() {
+    const area = document.querySelector('textarea[name="textMessage"]');
+    if (!area || !area.form || document.querySelector('.cmf-msg')) return;
+    const suggestions = cardSuggestions(sellerFromPage());
+    const card = el('input', { type: 'text', value: suggestions.best, placeholder: 'Nom de la carte' });
+    card.setAttribute('list', 'cmf-cards');
+    const cards = el('datalist', { id: 'cmf-cards' }, ...suggestions.all.map((n) => el('option', { value: n })));
+    const price = el('input', { type: 'text', inputMode: 'decimal', placeholder: 'Prix offre', className: 'cmf-offer' });
+    const buttons = el('span', { className: 'cmf-tpls' });
+    const fill = () => buttons.replaceChildren(...templates().map((t) => {
+      const b = button(t.title, () => insertTemplate(area, t, card.value, price.value));
+      b.title = t.text;
+      return b;
+    }));
+    fill();
+    // Entrée dans un champ ne doit pas envoyer le message
+    [card, price].forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); }));
+    area.form.before(el('div', { className: 'cmf-msg' }, card, cards, price, buttons,
+      button('✎ Modifier / ajouter', () => openEditor(fill), 'cmf-primary')));
+  }
+
   // ---------- Barre en haut du listing ----------
   function goTo(lang, cond) {
     const p = pageType();
@@ -328,23 +553,30 @@
     return el('label', {}, c, label);
   }
 
-  function exportFlags() {
-    const blob = new Blob([JSON.stringify(allFlags(), null, 2)], { type: 'application/json' });
-    const a = el('a', { href: URL.createObjectURL(blob), download: `cardmarket-flags-${new Date().toISOString().slice(0, 10)}.json` });
+  function exportData() {
+    const data = { flags: allFlags(), favorites: favorites(), templates: templates() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = el('a', { href: URL.createObjectURL(blob), download: `cardmarket-suivi-${new Date().toISOString().slice(0, 10)}.json` });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
-  function importFlags() {
+  function importData() {
     const input = el('input', { type: 'file', accept: '.json' });
     input.onchange = async () => {
       try {
-        const list = JSON.parse(await input.files[0].text());
+        const data = JSON.parse(await input.files[0].text());
+        // Les anciens exports ne contenaient que la liste des flags
+        const list = Array.isArray(data) ? data : data.flags || [];
         const valid = list.filter((f) => f && /^\d+$/.test(f.id) && STATUS[f.status]);
         valid.forEach((f) => {
           const cur = getFlag(f.id);
           if (!cur || cur.updatedAt < f.updatedAt) GM_setValue(FLAG + f.id, f);
         });
-        alert(`${valid.length} flag(s) lus.`);
+        const favs = (data.favorites || []).filter((f) => f && typeof f.path === 'string' && f.name);
+        favs.forEach((f) => GM_setValue(favKey(f), f));
+        if (Array.isArray(data.templates) && data.templates.every((t) => t && typeof t.text === 'string') &&
+          confirm('Remplacer aussi les messages types par ceux du fichier ?')) GM_setValue('templates', data.templates);
+        alert(`${valid.length} flag(s) et ${favs.length} favori(s) lus.`);
         renderAll();
       } catch (e) { alert('Fichier invalide.'); }
     };
@@ -368,8 +600,8 @@
         button('Sans filtre', () => goTo(0, 0)),
         checkbox('Filtres auto', s.auto, (v) => saveSettings({ auto: v })),
         checkbox('Aller au listing', s.scroll, (v) => saveSettings({ scroll: v })),
-        button('Exporter', exportFlags),
-        button('Importer', importFlags)),
+        button('Exporter', exportData),
+        button('Importer', importData)),
       el('div', { className: 'cmf-missing' }));
     if (table) table.before(bar); else anchor.prepend(bar);
     if (s.scroll && !samePage) {
@@ -406,6 +638,9 @@
     const flags = allFlags();
     rows.forEach((r) => renderRow(r, flags, visibleIds));
     layout();
+    renderHome();
+    renderMessages();
+    if (document.readyState !== 'loading') renderProductExtras();
     // Pas d'alerte "absente" tant que le listing n'est pas chargé
     if (document.readyState !== 'loading') renderMissing(flags, visibleIds);
   }
