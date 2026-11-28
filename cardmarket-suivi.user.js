@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cardmarket - Suivi des offres + filtres par défaut
 // @namespace    raf.cardmarket
-// @version      1.0.0
+// @version      1.1.0
 // @description  Flags couleur persistants sur les offres, alerte si prix/état modifié, filtres langue/état par défaut
 // @match        https://www.cardmarket.com/*
 // @run-at       document-start
@@ -20,9 +20,9 @@
   const LANGS = { 0: 'Toutes', 1: 'Anglais', 2: 'Français', 3: 'Allemand', 4: 'Espagnol', 5: 'Italien', 6: 'Chinois simplifié', 7: 'Japonais', 8: 'Portugais', 10: 'Coréen', 11: 'Chinois traditionnel' };
   const CONDS = { 0: 'Tous', 1: 'MT', 2: 'NM', 3: 'EX', 4: 'GD', 5: 'LP', 6: 'PL', 7: 'PO' };
   const STATUS = {
-    sent: { label: 'Demande envoyée', color: '#2e9e44' },
-    relance: { label: 'Relance 1', color: '#f2c200' },
-    bad: { label: 'État non conforme', color: '#d93025' },
+    sent: { label: 'Demande envoyée', short: 'Envoyée', color: '#2e9e44' },
+    relance: { label: 'Relance 1', short: 'Relance', color: '#f2c200' },
+    bad: { label: 'État non conforme', short: 'Non conf.', color: '#d93025' },
   };
   const FLAG = 'flag:';
 
@@ -154,13 +154,17 @@
     .article-row[data-cmf=bad]{background-color:#f8c4c0!important;box-shadow:inset 6px 0 0 #d93025}
     .article-row[data-cmf=changed]{background-color:#ffd3a1!important;box-shadow:inset 6px 0 0 #f57c00}
     .article-row[data-cmf=suspect]{box-shadow:inset 6px 0 0 #f57c00}
-    .cmf-btn{align-self:center;flex:0 0 auto;width:28px;height:28px;margin-left:6px;padding:0;border:1px solid #888;border-radius:5px;background:#fff;color:#333;cursor:pointer;line-height:1}
-    .cmf-note{flex:0 0 100%;width:100%;padding:2px 10px 4px;font-size:12px;font-weight:600;color:#222}
-    .cmf-note button,.cmf-bar button{margin-left:8px;padding:2px 9px;font-size:12px;border:1px solid #777;border-radius:4px;background:#fff;color:#222;cursor:pointer}
-    .cmf-menu{position:absolute;z-index:100000;min-width:200px;padding:4px;background:#fff;color:#222;border:1px solid #999;border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
-    .cmf-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;background:none;color:#222;text-align:left;font-size:13px;cursor:pointer}
-    .cmf-menu button:hover{background:#eef2f7}
-    .cmf-dot{display:inline-block;width:12px;height:12px;border-radius:50%}
+    .article-row[data-cmf] div:not(.cmf-side):not(.cmf-note){background-color:transparent!important}
+    .article-row{position:relative}
+    .article-row[data-cmf] .cmf-side,.article-row[data-cmf] .cmf-side div,.article-row .cmf-side,.article-row .cmf-side div{background-color:transparent!important;border:0!important;box-shadow:none!important}
+    .article-row>.cmf-side{position:absolute;top:0;bottom:0;left:calc(100% + 16px);display:flex;align-items:center;gap:5px;width:var(--cmf-w,90px)!important;max-width:none!important;padding:0;white-space:nowrap}
+    .cmf-btn{flex:0 0 auto;width:18px;height:18px;padding:0;border:2px solid;border-radius:50%;background:#fff;color:#fff;font-size:11px;font-weight:700;line-height:14px;cursor:pointer;opacity:.55}
+    .cmf-btn:hover,.cmf-btn[aria-pressed=true]{opacity:1}
+    .cmf-note{display:flex;align-items:center;gap:5px;min-width:0;margin-left:3px;overflow:hidden;font-size:11px;line-height:1.2;color:#666}
+    .cmf-note span{overflow:hidden;text-overflow:ellipsis}
+    .cmf-note.cmf-alert{color:#b35400;font-weight:600}
+    .cmf-note button{flex:0 0 auto;padding:0 5px;font-size:11px;line-height:15px;border:1px solid currentColor;border-radius:3px;background:#fff;color:inherit;cursor:pointer}
+    .cmf-bar button{margin-left:8px;padding:2px 9px;font-size:12px;border:1px solid #777;border-radius:4px;background:#fff;color:#222;cursor:pointer}
     .cmf-bar{width:100%;margin:0 0 8px;padding:8px 10px;border:1px solid #9bb0c9;border-radius:6px;background:#eef4fb;color:#222;font-size:13px}
     .cmf-bar .cmf-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
     .cmf-bar label{display:flex;align-items:center;gap:4px;margin:0}
@@ -180,27 +184,48 @@
     onclick: (e) => { e.preventDefault(); e.stopPropagation(); onClick(e); },
   });
 
-  let menu = null;
-  const closeMenu = () => { if (menu) { menu.remove(); menu = null; } };
-
-  function openMenu(anchor, row) {
-    closeMenu();
+  function toggleStatus(row, status) {
     const data = readRow(row);
     if (!data) return;
     const flag = getFlag(data.id);
-    menu = el('div', { className: 'cmf-menu', onclick: (e) => e.stopPropagation() });
-    const item = (label, color, action) => {
-      const b = button(label, () => { action(); closeMenu(); renderAll(); });
-      if (color) { const dot = el('span', { className: 'cmf-dot' }); dot.style.background = color; b.prepend(dot); }
-      menu.append(b);
-    };
-    for (const [key, s] of Object.entries(STATUS)) item((flag && flag.status === key ? '✓ ' : '') + s.label, s.color, () => setStatus(data, key));
-    if (flag && diff(flag, data).length) item('Valider le changement', null, () => acknowledge(data));
-    if (flag) item('Retirer le flag', null, () => GM_deleteValue(FLAG + data.id));
-    document.body.append(menu);
-    const r = anchor.getBoundingClientRect();
-    menu.style.top = `${r.bottom + window.scrollY + 4}px`;
-    menu.style.left = `${Math.max(8, r.right + window.scrollX - menu.offsetWidth)}px`;
+    if (flag && flag.status === status) GM_deleteValue(FLAG + data.id);
+    else setStatus(data, status);
+    renderAll();
+  }
+
+  function buildSide(row) {
+    const buttons = Object.entries(STATUS).map(([key, st]) => {
+      const b = button('', () => toggleStatus(row, key), 'cmf-btn');
+      b.dataset.status = key;
+      b.style.borderColor = st.color;
+      return b;
+    });
+    const side = el('div', { className: 'cmf-side' }, ...buttons, el('div', { className: 'cmf-note' }));
+    row.append(side);
+    return side;
+  }
+
+  // Les boutons vivent à droite du listing : on réserve la place si la fenêtre est étroite
+  function layout() {
+    const table = document.querySelector('.article-table');
+    if (!table) return;
+    const MIN = 110;
+    const width = document.documentElement.clientWidth;
+    table.style.marginRight = '';
+    let space = width - table.getBoundingClientRect().right;
+    if (space < MIN) {
+      table.style.marginRight = `${Math.ceil(MIN - space)}px`;
+      space = width - table.getBoundingClientRect().right;
+    }
+    document.documentElement.style.setProperty('--cmf-w', `${Math.max(70, Math.floor(space) - 22)}px`);
+  }
+
+  const day = (t) => new Date(t).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+  function shortDiff(flag, data) {
+    const out = [];
+    if (flag.price != null && data.price != null && Math.abs(flag.price - data.price) > 0.001) out.push(`${flag.priceText.replace(/\s*€/, '')}→${data.priceText}`);
+    if (flag.cond && data.cond && flag.cond !== data.cond) out.push(`${flag.cond}→${data.cond}`);
+    return out.join(' · ');
   }
 
   // Flag d'une annonce disparue du même vendeur sur la même carte : possible nouvel identifiant
@@ -213,49 +238,52 @@
   function renderRow(row, flags, visibleIds) {
     const data = readRow(row);
     if (!data) return;
-    const host = row.querySelector('.col-offer') || row;
-    if (!host.querySelector('.cmf-btn')) {
-      const b = button('⚑', (e) => openMenu(e.currentTarget, row), 'cmf-btn');
-      b.title = 'Suivi de cette offre';
-      if (host !== row) host.classList.add('d-flex');
-      host.append(b);
-    }
+    const side = row.querySelector(':scope > .cmf-side') || buildSide(row);
     const flag = getFlag(data.id);
     const changes = flag ? diff(flag, data) : [];
     const old = flag ? null : findPredecessor(data, flags, visibleIds);
     const sig = JSON.stringify([flag && [flag.status, flag.updatedAt], changes, data.price, data.cond, old && old.id]);
-    if (row.dataset.cmfSig === sig) return;
-    row.dataset.cmfSig = sig;
-    row.querySelectorAll(':scope > .cmf-note').forEach((n) => n.remove());
+    if (side.dataset.sig === sig) return;
+    side.dataset.sig = sig;
     delete row.dataset.cmf;
-    const btn = host.querySelector('.cmf-btn');
-    btn.style.background = '#fff';
+    side.querySelectorAll('.cmf-btn').forEach((b) => {
+      const key = b.dataset.status;
+      const on = !!flag && flag.status === key;
+      b.setAttribute('aria-pressed', on);
+      b.style.background = on ? STATUS[key].color : '#fff';
+      b.textContent = on ? '✓' : '';
+      b.title = on ? `${STATUS[key].label} (cliquer pour retirer)` : STATUS[key].label;
+    });
+    const note = side.querySelector('.cmf-note');
+    note.replaceChildren();
+    note.className = 'cmf-note';
+    note.title = '';
 
     if (flag) {
       const changed = changes.length > 0;
       // "Non conforme" reste rouge ; demande et relance passent en orange en cas de changement
       row.dataset.cmf = changed && isRequest(flag.status) ? 'changed' : flag.status;
-      btn.style.background = STATUS[flag.status].color;
-      const note = el('div', { className: 'cmf-note' },
-        `${STATUS[flag.status].label} - suivi depuis le ${fmtDate(flag.createdAt)}, mis à jour le ${fmtDate(flag.updatedAt)}`);
+      note.title = `${STATUS[flag.status].label}\nSuivi depuis le ${fmtDate(flag.createdAt)}\nMis à jour le ${fmtDate(flag.updatedAt)}`;
       if (changed) {
-        note.append(el('div', { textContent: `⚠ Modifié depuis le flag - ${changes.join(' | ')}` }));
-        note.lastChild.append(button('Valider le changement', () => { acknowledge(readRow(row)); renderAll(); }));
+        note.classList.add('cmf-alert');
+        note.title += `\n${changes.join('\n')}`;
+        const ok = button('OK', () => { acknowledge(readRow(row)); renderAll(); });
+        ok.title = 'Valider le changement';
+        note.append(ok, el('span', { textContent: `⚠ ${shortDiff(flag, data)}` }));
+      } else {
+        note.append(el('span', { textContent: `${STATUS[flag.status].short} ${day(flag.updatedAt)}` }));
       }
-      row.append(note);
     } else if (old) {
       row.dataset.cmf = 'suspect';
-      const changes2 = diff(old, data);
-      const note = el('div', { className: 'cmf-note' },
-        `⚠ Possible annonce modifiée : ce vendeur avait une offre suivie (${STATUS[old.status].label}, ${old.cond}, ${old.priceText}) non affichée ici.` +
-        (changes2.length ? ` ${changes2.join(' | ')}` : ''));
-      note.append(button('Reprendre le suivi', () => {
+      note.classList.add('cmf-alert');
+      note.title = `Possible annonce modifiée : ce vendeur avait une offre suivie (${STATUS[old.status].label}, ${old.cond}, ${old.priceText}) non affichée ici.\n${diff(old, data).join('\n')}`;
+      const take = button('Reprendre', () => {
         // On conserve l'ancien prix/état pour que la ligne passe en orange
         GM_setValue(FLAG + data.id, Object.assign({}, old, { id: data.id, comment: data.comment, updatedAt: Date.now() }));
         GM_deleteValue(FLAG + old.id);
         renderAll();
-      }));
-      row.append(note);
+      });
+      note.append(take, el('span', { textContent: '⚠ Annonce modifiée ?' }));
     }
   }
 
@@ -359,14 +387,14 @@
     const visibleIds = new Set(rows.map((r) => r.id.replace(/\D/g, '')));
     const flags = allFlags();
     rows.forEach((r) => renderRow(r, flags, visibleIds));
+    layout();
     // Pas d'alerte "absente" tant que le listing n'est pas chargé
     if (document.readyState !== 'loading') renderMissing(flags, visibleIds);
   }
 
   function init() {
     document.head.append(el('style', { textContent: CSS }));
-    document.addEventListener('click', closeMenu);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+    window.addEventListener('resize', layout);
     document.addEventListener('submit', (e) => {
       const f = e.target;
       if (f.getAttribute('id') === 'FilterForm' || f.querySelector('[name="userInventoryFilterMode"]')) markManual();
